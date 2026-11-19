@@ -28,6 +28,7 @@ type Linha = {
   Pacote_Comp__c?: string | null;
   Tipo_de_Matricula__c?: string | null;
   QuantidadePessoas__c?: number | null;
+  Amount?: number | null;
 };
 
 // Separa valores digitados por vírgula, ponto e vírgula ou quebra de linha.
@@ -170,7 +171,7 @@ async function analisar(params: {
   const [linhas, jaFez, primeira, tiposLabel] = await Promise.all([
     sfQuery<Linha>(
       `SELECT Id, AccountId, Account.Name, Name, C_digo_do_Curso__c,
-              Pacote_Comp__c, Tipo_de_Matricula__c, QuantidadePessoas__c
+              Pacote_Comp__c, Tipo_de_Matricula__c, QuantidadePessoas__c, Amount
        FROM Opportunity WHERE ${base}`
     ),
     sfQuery<Conta>(
@@ -221,6 +222,8 @@ async function analisar(params: {
     tipoMatricula: l.Tipo_de_Matricula__c ?? "—",
     tipoMatriculaLabel:
       (l.Tipo_de_Matricula__c && tiposLabel.get(l.Tipo_de_Matricula__c)) || "",
+    quantidade: l.QuantidadePessoas__c ?? 0,
+    valor: l.Amount ?? 0,
   }));
   repetidos.sort(
     (a, b) => a.aluno.localeCompare(b.aluno, "pt-BR") || a.nomeVenda.localeCompare(b.nomeVenda, "pt-BR")

@@ -30,6 +30,8 @@ type Repetido = {
   pacote: string;
   tipoMatricula: string;
   tipoMatriculaLabel: string;
+  quantidade: number;
+  valor: number;
 };
 type Dados = {
   modo: "padrao" | "mesmo-curso";
@@ -46,6 +48,7 @@ const CORES_FAIXA: Record<string, string> = {
 };
 
 const numero = (n: number) => n.toLocaleString("pt-BR");
+const moeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function Cartao({
   titulo,
@@ -322,7 +325,7 @@ export default function Home() {
               </p>
             ) : (
               <div className="mt-3 max-h-[420px] overflow-auto">
-                <table className="w-full min-w-[1000px] text-left text-[11px]">
+                <table className="w-full min-w-[1160px] text-left text-[11px]">
                   <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase" style={{ color: COR.textoSuave }}>
                     <tr>
                       <th className="px-2 py-2">ID da venda</th>
@@ -331,6 +334,8 @@ export default function Home() {
                       <th className="px-2 py-2">Nome da venda</th>
                       <th className="px-2 py-2">Curso</th>
                       <th className="px-2 py-2">Pacote do aluno</th>
+                      <th className="px-2 py-2">QUANTIDADE</th>
+                      <th className="px-2 py-2">VALOR</th>
                       <th className="px-2 py-2">Tipo matrícula</th>
                     </tr>
                   </thead>
@@ -339,7 +344,8 @@ export default function Home() {
                       .filter((r) => {
                         const termo = buscaRepetidos.trim().toLowerCase();
                         if (!termo) return true;
-                        return [r.vendaId, r.alunoId, r.aluno, r.nomeVenda, r.curso, r.pacote, r.tipoMatricula, r.tipoMatriculaLabel]
+                        return [r.vendaId, r.alunoId, r.aluno, r.nomeVenda, r.curso, r.pacote, r.tipoMatricula, r.tipoMatriculaLabel,
+                          numero(r.quantidade), moeda.format(r.valor)]
                           .some((v) => v.toLowerCase().includes(termo));
                       })
                       .map((r) => (
@@ -350,6 +356,8 @@ export default function Home() {
                           <td className="px-2 py-1.5">{r.nomeVenda}</td>
                           <td className="px-2 py-1.5 font-semibold">{r.curso}</td>
                           <td className="px-2 py-1.5">{r.pacote}</td>
+                          <td className="px-2 py-1.5 text-right font-semibold">{numero(r.quantidade)}</td>
+                          <td className="px-2 py-1.5 text-right font-semibold">{moeda.format(r.valor)}</td>
                           <td className="px-2 py-1.5">
                             {r.tipoMatriculaLabel ? `${r.tipoMatriculaLabel} (${r.tipoMatricula})` : r.tipoMatricula}
                           </td>
