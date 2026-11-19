@@ -19,6 +19,16 @@ const REGRAS = `StageName IN (${lista(STAGES)})
   AND Tipo_de_Matricula__c NOT IN (${lista(TIPOS_EXCLUIR)})`;
 
 type Conta = { Id: string };
+type Linha = {
+  Id: string;
+  AccountId?: string | null;
+  Account?: { Name?: string | null } | null;
+  Name?: string | null;
+  C_digo_do_Curso__c?: string | null;
+  Pacote_Comp__c?: string | null;
+  Tipo_de_Matricula__c?: string | null;
+  QuantidadePessoas__c?: number | null;
+};
 
 // Separa valores digitados por vírgula, ponto e vírgula ou quebra de linha.
 function parsearLista(valor: string, maiusculas = false): string[] {
@@ -158,8 +168,10 @@ async function analisar(params: {
   const mesmoCurso = cursosComp.some((c) => cursosBase.includes(c));
 
   const [linhas, jaFez, primeira] = await Promise.all([
-    sfQuery<{ AccountId?: string | null; QuantidadePessoas__c?: number | null }>(
-      `SELECT AccountId, QuantidadePessoas__c FROM Opportunity WHERE ${base}`
+    sfQuery<Linha>(
+      `SELECT Id, AccountId, Account.Name, Name, C_digo_do_Curso__c,
+              Pacote_Comp__c, Tipo_de_Matricula__c, QuantidadePessoas__c
+       FROM Opportunity WHERE ${base}`
     ),
     sfQuery<Conta>(
       `SELECT Id FROM Account
@@ -185,6 +197,31 @@ async function analisar(params: {
 
   const totalPessoas = linhas.reduce((s, l) => s + (l.QuantidadePessoas__c ?? 0), 0);
   const totalContas = pessoasPorConta.size;
+
+  // Detalhamento dos alunos repetidos: contas com mais de uma venda ou mais de uma vaga.
+  const vendasPorConta = new Map<string, number>();
+  for (const l of linhas) {
+    if (!l.AccountId) continue;
+    vendasPorConta.set(l.AccountId, (vendasPorConta.get(l.AccountId) ?? 0) + 1);
+  }
+  const repetidosIds = new Set(
+    [...pessoasPorConta]
+      .filter(([id, pessoas]) => (vendasPorConta.get(id) ?? 0) > 1 || pessoas > 1)
+      .map(([id]) => id)
+  );
+  const linhasRepetidas = linhas.filter((l) => l.AccountId && repetidosIds.has(l.AccountId));
+  const repetidos = linhasRepetidas.slice(0, 1000).map((l) => ({
+    vendaId: l.Id,
+    alunoId: l.AccountId!,
+    aluno: l.Account?.Name ?? "—",
+    nomeVenda: l.Name ?? "—",
+    curso: l.C_digo_do_Curso__c ?? "—",
+    pacote: l.Pacote_Comp__c ?? "—",
+    tipoMatricula: l.Tipo_de_Matricula__c ?? "—",
+  }));
+  repetidos.sort(
+    (a, b) => a.aluno.localeCompare(b.aluno, "pt-BR") || a.nomeVenda.localeCompare(b.nomeVenda, "pt-BR")
+  );
 
   const jaFezIds = new Set(jaFez.map((c) => c.Id));
   const somaPessoas = (ids: Set<string>) =>
@@ -248,6 +285,12 @@ async function analisar(params: {
       pessoas: totalPessoas,
       contas: totalContas,
       repetidos: Math.max(0, totalPessoas - totalContas),
+    },
+    repetidos: {
+      contas: repetidosIds.size,
+      vendas: linhasRepetidas.length,
+      truncado: linhasRepetidas.length > 1000,
+      linhas: repetidos,
     },
     faixas,
   };

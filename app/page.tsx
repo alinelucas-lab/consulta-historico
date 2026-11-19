@@ -21,10 +21,20 @@ type Faixa = {
   contas: number;
   pct: number;
 };
+type Repetido = {
+  vendaId: string;
+  alunoId: string;
+  aluno: string;
+  nomeVenda: string;
+  curso: string;
+  pacote: string;
+  tipoMatricula: string;
+};
 type Dados = {
   modo: "padrao" | "mesmo-curso";
   filtros: { curso: string; turma: string; comparacao: string; turmaComparacao: string; variacoes: boolean };
   total: { pessoas: number; contas: number; repetidos: number };
+  repetidos: { contas: number; vendas: number; truncado: boolean; linhas: Repetido[] };
   faixas: Faixa[];
 };
 
@@ -109,6 +119,7 @@ export default function Home() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [buscaRepetidos, setBuscaRepetidos] = useState("");
 
   // Sugestões de turma acompanham o curso selecionado.
   useEffect(() => {
@@ -284,6 +295,76 @@ export default function Home() {
                 </span>
               ))}
             </div>
+          </section>
+
+          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: COR.primaria }}>
+                  Alunos repetidos — detalhamento
+                </h2>
+                <p className="mt-0.5 text-[11px]" style={{ color: COR.textoSuave }}>
+                  {numero(dados.repetidos.contas)} contas com mais de uma vaga ou venda · {numero(dados.repetidos.vendas)} vendas
+                </p>
+              </div>
+              <input
+                value={buscaRepetidos}
+                onChange={(e) => setBuscaRepetidos(e.target.value)}
+                placeholder="Buscar por ID, aluno, curso ou pacote..."
+                className="w-full max-w-xs rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs"
+              />
+            </div>
+
+            {dados.repetidos.linhas.length === 0 ? (
+              <p className="mt-3 text-sm" style={{ color: COR.textoSuave }}>
+                Nenhum aluno repetido nesta seleção.
+              </p>
+            ) : (
+              <div className="mt-3 max-h-[420px] overflow-auto">
+                <table className="w-full min-w-[1000px] text-left text-[11px]">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase" style={{ color: COR.textoSuave }}>
+                    <tr>
+                      <th className="px-2 py-2">ID da venda</th>
+                      <th className="px-2 py-2">ID do aluno</th>
+                      <th className="px-2 py-2">Nome do aluno</th>
+                      <th className="px-2 py-2">Nome da venda</th>
+                      <th className="px-2 py-2">Curso</th>
+                      <th className="px-2 py-2">Pacote do aluno</th>
+                      <th className="px-2 py-2">Tipo matrícula</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dados.repetidos.linhas
+                      .filter((r) => {
+                        const termo = buscaRepetidos.trim().toLowerCase();
+                        if (!termo) return true;
+                        return [r.vendaId, r.alunoId, r.aluno, r.nomeVenda, r.curso, r.pacote, r.tipoMatricula]
+                          .some((v) => v.toLowerCase().includes(termo));
+                      })
+                      .map((r) => (
+                        <tr key={r.vendaId} className="border-t border-slate-100">
+                          <td className="px-2 py-1.5 font-mono text-[10px]">{r.vendaId}</td>
+                          <td className="px-2 py-1.5 font-mono text-[10px]">{r.alunoId}</td>
+                          <td className="px-2 py-1.5">{r.aluno}</td>
+                          <td className="px-2 py-1.5">{r.nomeVenda}</td>
+                          <td className="px-2 py-1.5 font-semibold">{r.curso}</td>
+                          <td className="px-2 py-1.5">{r.pacote}</td>
+                          <td className="px-2 py-1.5">{r.tipoMatricula}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {dados.repetidos.truncado && (
+              <p className="mt-2 text-[11px]" style={{ color: COR.atencao }}>
+                Exibindo as primeiras 1.000 vendas. Refine os filtros para ver todas.
+              </p>
+            )}
+            <p className="mt-2 text-[11px]" style={{ color: COR.textoSuave }}>
+              O card “Alunos repetidos” é a diferença entre a soma de pessoas e a quantidade de IDs distintos. Esta tabela mostra as vendas das contas que aparecem mais de uma vez na seleção — por isso a quantidade de vendas pode não ser igual ao número do card.
+            </p>
           </section>
 
           <p className="pb-2 text-center text-[11px]" style={{ color: COR.textoSuave }}>
