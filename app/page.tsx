@@ -21,6 +21,7 @@ type Faixa = {
   pct: number;
 };
 type Dados = {
+  modo: "padrao" | "mesmo-curso";
   filtros: { curso: string; turma: string; comparacao: string; turmaComparacao: string; variacoes: boolean };
   total: { pessoas: number; contas: number; matriculas: number };
   faixas: Faixa[];
@@ -157,8 +158,15 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const codigos = (texto: string) =>
+    texto.toUpperCase().split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  const mesmoCursoUI = codigos(comparacao).some((c) => codigos(curso).includes(c));
+
+  const baseDescricao = turma.trim() ? `turma ${turma.trim()}` : `base do curso ${curso.trim()}`;
   const resumo = dados
-    ? `A ${turma.trim() ? `turma ${turma.trim()}` : `base do curso ${curso.trim()}`} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao.trim()}${variacoes ? " (ou variações)" : ""} em algum momento; ${dados.faixas[1]?.pct}% fez outro curso (que não é o da base nem o comparado); e ${dados.faixas[2]?.pct}% estão fazendo pela primeira vez em qualquer curso.`
+    ? dados.modo === "mesmo-curso"
+      ? `A ${baseDescricao} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao.trim()} em outra turma; e ${dados.faixas[1]?.pct}% está fazendo ${curso.trim()} pela primeira vez.`
+      : `A ${baseDescricao} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao.trim()}${variacoes ? " (ou variações)" : ""} em algum momento; ${dados.faixas[1]?.pct}% fez outro curso (que não é o da base nem o comparado); e ${dados.faixas[2]?.pct}% estão fazendo pela primeira vez em qualquer curso.`
     : "";
 
   return (
@@ -179,7 +187,7 @@ export default function Home() {
           <Campo id="cursos-base" label="Curso base" valor={curso} opcoes={opcoes.cursos} onChange={setCurso} placeholder="Ex.: MMM" />
           <Campo id="turmas-base" label="Turma base" valor={turma} opcoes={opcoes.turmasBase} onChange={setTurma} placeholder="Ex.: 253 (contém)" />
           <Campo id="cursos-comp" label="Comparar com" valor={comparacao} opcoes={opcoes.cursos} onChange={setComparacao} placeholder="Ex.: CIS" />
-          <Campo id="turmas-comp" label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmasComparacao} onChange={setTurmaComparacao} placeholder="Ex.: 253 (contém)" />
+          <Campo id="turmas-comp" label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmasComparacao} onChange={setTurmaComparacao} placeholder="Ex.: !=253 (diferente)" />
           <div className="flex items-end">
             <button
               onClick={() => void analisar()}
@@ -200,8 +208,13 @@ export default function Home() {
             Cursos: digite ou escolha; separe vários por vírgula (ex.: <b>MMM, CIS</b>).
           </span>
           <span className="text-[11px]" style={{ color: COR.textoSuave }}>
-            Turmas: digite parte do nome (ex.: <b>253</b> = contém). Use <b>=</b> para exato, <b>^</b> para começa com, <b>$</b> para termina com. Várias, separe por vírgula.
+            Turmas: <b>253</b> = contém · <b>!=253</b> = diferente · <b>=nome</b> = exato · <b>^2026</b> = começa com · <b>$01</b> = termina com. Várias, separe por vírgula.
           </span>
+          {mesmoCursoUI && (
+            <span className="text-[11px] font-semibold" style={{ color: COR.primaria }}>
+              Mesmo curso na base e na comparação: desmarque “Incluir variações” para considerar somente este curso.
+            </span>
+          )}
         </div>
       </section>
 
@@ -243,7 +256,7 @@ export default function Home() {
                   <span className="text-sm" style={{ color: COR.texto }}>{numero(f.pessoas)} alunos</span>
                 </div>
                 <div className="mt-1 text-[11px]" style={{ color: COR.textoSuave }}>
-                  {numero(f.contas)} contas · {f.chave === "comparacao" ? "histórico no curso comparado" : f.chave === "primeira" ? "nenhum curso anterior" : "cursos diferentes dos selecionados"}
+                  {numero(f.contas)} contas · {f.chave === "comparacao" ? (dados.modo === "mesmo-curso" ? "histórico em outra turma" : "histórico no curso comparado") : f.chave === "primeira" ? (dados.modo === "mesmo-curso" ? "nenhuma turma anterior deste curso" : "nenhum curso anterior") : "cursos diferentes dos selecionados"}
                 </div>
               </div>
             ))}

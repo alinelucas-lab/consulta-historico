@@ -34,13 +34,25 @@ function parsearLista(valor: string, maiusculas = false): string[] {
 }
 
 // Operadores para turma:
-//   253          -> contém 253 (padrão)
-//   contem:253   -> contém 253
-//   ^2026        -> começa com 2026
-//   $01          -> termina com 01
-//   =2026 - MMM01 -> exatamente esse nome
-function parsearTermoTurma(termo: string): { op: string; valor: string } {
-  const t = termo.trim();
+//   253            -> contém 253 (padrão)
+//   !=253          -> NÃO contém 253  (também: <>253, !253, diferente:253)
+//   contem:253     -> contém 253
+//   ^2026          -> começa com 2026
+//   $01            -> termina com 01
+//   =2026 - MMM01  -> exatamente esse nome
+function parsearTermoTurma(termo: string): { op: string; valor: string; negar: boolean } {
+  let t = termo.trim();
+  let negar = false;
+
+  const negacoes = [/^diferente\s*:\s*/i, /^!=\s*/, /^<>\s*/, /^!(?!=)/];
+  for (const re of negacoes) {
+    if (re.test(t)) {
+      negar = true;
+      t = t.replace(re, "").trim();
+      break;
+    }
+  }
+
   const prefixos: Array<[RegExp, string]> = [
     [/^contem\s*:\s*/i, "contem"],
     [/^inicia\s*:\s*/i, "inicia"],
@@ -52,29 +64,43 @@ function parsearTermoTurma(termo: string): { op: string; valor: string } {
     [/^~/, "contem"],
   ];
   for (const [re, op] of prefixos) {
-    if (re.test(t)) return { op, valor: t.replace(re, "").trim() };
+    if (re.test(t)) return { op, valor: t.replace(re, "").trim(), negar };
   }
-  return { op: "contem", valor: t };
+  return { op: "contem", valor: t, negar };
 }
 
 function condicaoTurma(termo: string): string {
-  const { op, valor } = parsearTermoTurma(termo);
+  const { op, valor, negar } = parsearTermoTurma(termo);
   if (!valor) return "1 = 0";
+  let cond: string;
   switch (op) {
     case "exato":
-      return `Turma__r.Name = '${esc(valor)}'`;
+      cond = `Turma__r.Name = '${esc(valor)}'`;
+      break;
     case "inicia":
-      return `Turma__r.Name LIKE '${escapeLike(valor)}%'`;
+      cond = `Turma__r.Name LIKE '${escapeLike(valor)}%'`;
+      break;
     case "termina":
-      return `Turma__r.Name LIKE '%${escapeLike(valor)}'`;
+      cond = `Turma__r.Name LIKE '%${escapeLike(valor)}'`;
+      break;
     default:
-      return `Turma__r.Name LIKE '%${escapeLike(valor)}%'`;
+      cond = `Turma__r.Name LIKE '%${escapeLike(valor)}%'`;
   }
+  return negar ? `NOT (${cond})` : cond;
 }
 
 function filtroTurma(termos: string[]): string {
   if (!termos.length) return "";
-  return ` AND (${termos.map(condicaoTurma).join(" OR ")})`;
+  const positivos: string[] = [];
+  const negativos: string[] = [];
+  for (const t of termos) {
+    if (parsearTermoTurma(t).negar) negativos.push(condicaoTurma(t));
+    else positivos.push(condicaoTurma(t));
+  }
+  const partes: string[] = [];
+  if (positivos.length) partes.push(`(${positivos.join(" OR ")})`);
+  if (negativos.length) partes.push(`(${negativos.join(" AND ")})`);
+  return partes.length ? ` AND ${partes.join(" AND ")}` : "";
 }
 
 function filtroCursos(cursos: string[], variacoes: boolean, termosTurma: string[]) {
@@ -127,6 +153,10 @@ async function analisar(params: {
   const base = filtroCursos(cursosBase, false, termosTurmaBase);
   const comp = filtroCursos(cursosComp, variacoes, termosTurmaComp);
 
+  // Quando a comparação usa o mesmo curso da base, a pergunta vira:
+  // "já fez este curso em outra turma?" x "é a primeira vez neste curso?".
+  const mesmoCurso = cursosComp.some((c) => cursosBase.includes(c));
+
   const [linhas, jaFez, primeira] = await Promise.all([
     sfQuery<{ AccountId?: string | null; QuantidadePessoas__c?: number | null }>(
       `SELECT AccountId, QuantidadePessoas__c FROM Opportunity WHERE ${base}`
@@ -136,13 +166,15 @@ async function analisar(params: {
        WHERE Id IN (SELECT AccountId FROM Opportunity WHERE ${base})
          AND Id IN (SELECT AccountId FROM Opportunity WHERE ${comp})`
     ),
-    sfQuery<Conta>(
-      `SELECT Id FROM Account
-       WHERE Id IN (SELECT AccountId FROM Opportunity WHERE ${base})
-         AND Id NOT IN (SELECT AccountId FROM Opportunity
-                        WHERE ${REGRAS}
-                          AND C_digo_do_Curso__c NOT IN (${lista(cursosBase)}))`
-    ),
+    mesmoCurso
+      ? Promise.resolve([] as Conta[])
+      : sfQuery<Conta>(
+          `SELECT Id FROM Account
+           WHERE Id IN (SELECT AccountId FROM Opportunity WHERE ${base})
+             AND Id NOT IN (SELECT AccountId FROM Opportunity
+                            WHERE ${REGRAS}
+                              AND C_digo_do_Curso__c NOT IN (${lista(cursosBase)}))`
+        ),
   ]);
 
   const pessoasPorConta = new Map<string, number>();
@@ -155,19 +187,32 @@ async function analisar(params: {
   const totalContas = pessoasPorConta.size;
 
   const jaFezIds = new Set(jaFez.map((c) => c.Id));
-  // Garante que as faixas não se sobreponham (ex.: mesmo código na base e na comparação).
-  const primeiraIds = new Set(primeira.map((c) => c.Id).filter((id) => !jaFezIds.has(id)));
-
   const somaPessoas = (ids: Set<string>) =>
     [...ids].reduce((s, id) => s + (pessoasPorConta.get(id) ?? 0), 0);
 
   const pessoasComparacao = somaPessoas(jaFezIds);
-  const pessoasPrimeira = somaPessoas(primeiraIds);
   const contasComparacao = jaFezIds.size;
-  const contasPrimeira = primeiraIds.size;
 
-  const pessoasOutros = Math.max(0, totalPessoas - pessoasComparacao - pessoasPrimeira);
-  const contasOutros = Math.max(0, totalContas - contasComparacao - contasPrimeira);
+  let pessoasPrimeira: number;
+  let contasPrimeira: number;
+  let pessoasOutros: number;
+  let contasOutros: number;
+
+  if (mesmoCurso) {
+    // Primeira vez no curso = quem está na base e NÃO aparece na comparação.
+    const primeiraIds = new Set([...pessoasPorConta.keys()].filter((id) => !jaFezIds.has(id)));
+    pessoasPrimeira = somaPessoas(primeiraIds);
+    contasPrimeira = primeiraIds.size;
+    pessoasOutros = 0;
+    contasOutros = 0;
+  } else {
+    // Garante que as faixas não se sobreponham.
+    const primeiraIds = new Set(primeira.map((c) => c.Id).filter((id) => !jaFezIds.has(id)));
+    pessoasPrimeira = somaPessoas(primeiraIds);
+    contasPrimeira = primeiraIds.size;
+    pessoasOutros = Math.max(0, totalPessoas - pessoasComparacao - pessoasPrimeira);
+    contasOutros = Math.max(0, totalContas - contasComparacao - contasPrimeira);
+  }
 
   const pct = (n: number) => (totalPessoas ? Math.round((n / totalPessoas) * 1000) / 10 : 0);
 
@@ -179,7 +224,19 @@ async function analisar(params: {
     pct: pct(pessoas),
   });
 
+  const faixas = mesmoCurso
+    ? [
+        faixa("comparacao", `Já fez ${cursosComp.join(", ")} em outra turma`, pessoasComparacao, contasComparacao),
+        faixa("primeira", `Primeira vez em ${cursosBase.join(", ")}`, pessoasPrimeira, contasPrimeira),
+      ]
+    : [
+        faixa("comparacao", `Já fez ${cursosComp.join(", ")}${variacoes ? " (e variações)" : ""}`, pessoasComparacao, contasComparacao),
+        faixa("outros", "Fez outro curso", pessoasOutros, contasOutros),
+        faixa("primeira", "Primeira vez em qualquer curso", pessoasPrimeira, contasPrimeira),
+      ];
+
   return {
+    modo: mesmoCurso ? "mesmo-curso" : "padrao",
     filtros: {
       curso: cursosBase.join(", "),
       turma: termosTurmaBase.join(", "),
@@ -188,11 +245,7 @@ async function analisar(params: {
       variacoes,
     },
     total: { pessoas: totalPessoas, contas: totalContas, matriculas: linhas.length },
-    faixas: [
-      faixa("comparacao", `Já fez ${cursosComp.join(", ")}${variacoes ? " (e variações)" : ""}`, pessoasComparacao, contasComparacao),
-      faixa("outros", "Fez outro curso", pessoasOutros, contasOutros),
-      faixa("primeira", "Primeira vez em qualquer curso", pessoasPrimeira, contasPrimeira),
-    ],
+    faixas,
   };
 }
 
