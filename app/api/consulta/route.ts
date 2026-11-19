@@ -21,51 +21,72 @@ type Oportunidade = {
   AccountId?: string | null;
   Account?: { Name: string } | null;
   QuantidadePessoas__c?: number | null;
-  Turma__r?: { Name: string } | null;
-  C_digo_do_Curso__c?: string | null;
 };
 type Conta = { Id: string; Name: string };
 
-function filtroCurso(curso: string, variacoes: boolean, turma?: string) {
+// Aceita "MMM", "MMM, CIS", "CIS; CISFM", etc.
+function parsearLista(valor: string): string[] {
+  return [
+    ...new Set(
+      valor
+        .split(/[,;\n]/)
+        .map((v) => v.trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function filtroCursos(cursos: string[], variacoes: boolean, turmas: string[]) {
   const campo = variacoes
-    ? `C_digo_do_Curso__c LIKE '${esc(curso)}%'`
-    : `C_digo_do_Curso__c = '${esc(curso)}'`;
-  return `${REGRAS} AND ${campo}${turma ? ` AND Turma__r.Name = '${esc(turma)}'` : ""}`;
+    ? `(${cursos.map((c) => `C_digo_do_Curso__c LIKE '${esc(c)}%'`).join(" OR ")})`
+    : `C_digo_do_Curso__c IN (${lista(cursos)})`;
+  const filtroTurma = turmas.length ? ` AND Turma__r.Name IN (${lista(turmas)})` : "";
+  return `${REGRAS} AND ${campo}${filtroTurma}`;
 }
 
 async function carregarOpcoes() {
   const [cursosBrutos, turmasBrutas] = await Promise.all([
-    sfQuery<{ C_digo_do_Curso__c: string }>(
-      `SELECT C_digo_do_Curso__c FROM Opportunity
-       WHERE ${REGRAS} AND C_digo_do_Curso__c != null
-       LIMIT 5000`
+    // O campo de código em Opportunity não é agrupável no Salesforce.
+    // O objeto Curso__c tem todos os códigos e permite GROUP BY.
+    sfQuery<{ CodigoCurso__c: string }>(
+      `SELECT CodigoCurso__c, COUNT(Id) total FROM Curso__c
+       WHERE CodigoCurso__c != null
+       GROUP BY CodigoCurso__c ORDER BY COUNT(Id) DESC`
     ),
-    sfQuery<{ Turma__r?: { Name: string } | null }>(
-      `SELECT Turma__r.Name FROM Opportunity
-       WHERE ${REGRAS} AND Turma__c != null
-       LIMIT 5000`
+    // Consultas agrupadas não aceitam queryMore no Salesforce: máximo de 2000 por lote.
+    sfQuery<{ Turma__r?: { Name: string } | null; Name?: string }>(
+      `SELECT Turma__r.Name, SUM(QuantidadePessoas__c) total
+       FROM Opportunity WHERE ${REGRAS} AND Turma__c != null
+       GROUP BY Turma__r.Name ORDER BY SUM(QuantidadePessoas__c) DESC LIMIT 2000`
     ),
   ]);
 
-  const cursos = [...new Set(cursosBrutos.map((r) => r.C_digo_do_Curso__c).filter(Boolean))].sort();
-  const turmas = [...new Set(turmasBrutas.map((r) => r.Turma__r?.Name).filter(Boolean) as string[])].sort();
+  const cursos = [...new Set(cursosBrutos.map((r) => r.CodigoCurso__c).filter(Boolean) as string[])].sort();
+  // Em AggregateResult o Salesforce devolve o relacionamento como "Name" (não "Turma__r.Name").
+  const turmas = [
+    ...new Set(
+      turmasBrutas
+        .map((r) => r.Turma__r?.Name ?? r.Name)
+        .filter(Boolean) as string[]
+    ),
+  ].sort();
   return { cursos, turmas };
 }
 
 async function analisar(params: {
-  curso: string;
-  turma: string;
-  comparacao: string;
-  turmaComparacao: string;
+  cursosBase: string[];
+  turmasBase: string[];
+  cursosComp: string[];
+  turmasComp: string[];
   variacoes: boolean;
 }) {
-  const { curso, turma, comparacao, turmaComparacao, variacoes } = params;
-  const base = filtroCurso(curso, false, turma || undefined);
-  const comp = filtroCurso(comparacao, variacoes, turmaComparacao || undefined);
+  const { cursosBase, turmasBase, cursosComp, turmasComp, variacoes } = params;
+  const base = filtroCursos(cursosBase, false, turmasBase);
+  const comp = filtroCursos(cursosComp, variacoes, turmasComp);
 
   const [linhas, jaFez, primeira] = await Promise.all([
     sfQuery<Oportunidade>(
-      `SELECT AccountId, Account.Name, QuantidadePessoas__c, Turma__r.Name, C_digo_do_Curso__c
+      `SELECT AccountId, Account.Name, QuantidadePessoas__c
        FROM Opportunity WHERE ${base}`
     ),
     sfQuery<Conta>(
@@ -77,7 +98,8 @@ async function analisar(params: {
       `SELECT Id, Name FROM Account
        WHERE Id IN (SELECT AccountId FROM Opportunity WHERE ${base})
          AND Id NOT IN (SELECT AccountId FROM Opportunity
-                        WHERE ${REGRAS} AND C_digo_do_Curso__c != '${esc(curso)}')`
+                        WHERE ${REGRAS}
+                          AND C_digo_do_Curso__c NOT IN (${lista(cursosBase)}))`
     ),
   ]);
 
@@ -96,7 +118,8 @@ async function analisar(params: {
   jaFez.forEach((c) => nomePorConta.set(c.Id, c.Name));
   primeira.forEach((c) => nomePorConta.set(c.Id, c.Name));
 
-  const primeiraIds = new Set(primeira.map((c) => c.Id));
+  // Garante que as faixas não se sobreponham (ex.: mesmo código na base e na comparação).
+  const primeiraIds = new Set(primeira.map((c) => c.Id).filter((id) => !jaFezIds.has(id)));
   const somaPessoas = (ids: Set<string>) =>
     [...ids].reduce((s, id) => s + (pessoasPorConta.get(id) ?? 0), 0);
 
@@ -105,7 +128,6 @@ async function analisar(params: {
   const contasComparacao = jaFezIds.size;
   const contasPrimeira = primeiraIds.size;
 
-  // "Outros cursos" = quem não caiu nas duas faixas acima.
   const outrosIds = new Set<string>();
   for (const [id, pessoas] of pessoasPorConta) {
     if (pessoas > 0 && !jaFezIds.has(id) && !primeiraIds.has(id)) outrosIds.add(id);
@@ -125,12 +147,11 @@ async function analisar(params: {
   });
 
   const faixas = [
-    faixa("comparacao", `Já fez ${comparacao}${variacoes ? " (e variações)" : ""}`, pessoasComparacao, contasComparacao, jaFezIds),
+    faixa("comparacao", `Já fez ${cursosComp.join(", ")}${variacoes ? " (e variações)" : ""}`, pessoasComparacao, contasComparacao, jaFezIds),
     faixa("outros", "Fez outro curso", pessoasOutros, contasOutros, outrosIds),
     faixa("primeira", "Primeira vez em qualquer curso", pessoasPrimeira, contasPrimeira, primeiraIds),
   ];
 
-  // Linhas para a tabela detalhada, com a classificação de cada aluno.
   const alunos = [...pessoasPorConta].map(([id, pessoas]) => ({
     id,
     nome: nomePorConta.get(id) ?? "—",
@@ -139,7 +160,13 @@ async function analisar(params: {
   }));
 
   return {
-    filtros: { curso, turma, comparacao, turmaComparacao, variacoes },
+    filtros: {
+      curso: cursosBase.join(", "),
+      turma: turmasBase.join(", "),
+      comparacao: cursosComp.join(", "),
+      turmaComparacao: turmasComp.join(", "),
+      variacoes,
+    },
     total: { pessoas: totalPessoas, contas: totalContas, matriculas: linhas.length },
     faixas,
     alunos,
@@ -157,17 +184,17 @@ export async function GET(request: Request) {
       });
     }
 
-    const curso = (p.get("curso") ?? "").trim();
-    const comparacao = (p.get("comparacao") ?? "").trim();
-    if (!curso || !comparacao) {
+    const cursosBase = parsearLista(p.get("curso") ?? "");
+    const cursosComp = parsearLista(p.get("comparacao") ?? "");
+    if (!cursosBase.length || !cursosComp.length) {
       return NextResponse.json({ erro: "Informe o curso base e o curso de comparação." }, { status: 400 });
     }
 
     const dados = await analisar({
-      curso,
-      turma: (p.get("turma") ?? "").trim(),
-      comparacao,
-      turmaComparacao: (p.get("turmaComparacao") ?? "").trim(),
+      cursosBase,
+      turmasBase: parsearLista(p.get("turma") ?? ""),
+      cursosComp,
+      turmasComp: parsearLista(p.get("turmaComparacao") ?? ""),
       variacoes: p.get("variacoes") === "1",
     });
 

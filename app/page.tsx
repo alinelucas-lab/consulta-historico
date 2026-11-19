@@ -7,7 +7,6 @@ const COR = {
   destaque: "#F58220",
   fundo: "#EEF1F7",
   ok: "#1E9E5A",
-  alerta: "#D64545",
   neutro: "#8A94A6",
   texto: "#1F2937",
   textoSuave: "#5B6577",
@@ -65,42 +64,47 @@ function Cartao({
   );
 }
 
-function Select({
+function Campo({
   label,
   valor,
   opcoes,
   onChange,
- Placeholder = "Todas",
+  placeholder,
+  id,
 }: {
   label: string;
   valor: string;
   opcoes: string[];
   onChange: (v: string) => void;
-  Placeholder?: string;
+  placeholder: string;
+  id: string;
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: COR.textoSuave }}>
       {label}
-      <select
+      <input
+        list={id}
         value={valor}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
         className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
         style={{ color: COR.texto }}
-      >
-        <option value="">{Placeholder}</option>
+      />
+      <datalist id={id}>
         {opcoes.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o} value={o} />
         ))}
-      </select>
+      </datalist>
     </label>
   );
 }
 
 export default function Home() {
   const [opcoes, setOpcoes] = useState<Opcoes>({ cursos: [], turmas: [] });
-  const [curso, setCurso] = useState("");
+  const [curso, setCurso] = useState("MMM");
   const [turma, setTurma] = useState("");
-  const [comparacao, setComparacao] = useState("");
+  const [comparacao, setComparacao] = useState("CIS");
   const [turmaComparacao, setTurmaComparacao] = useState("");
   const [variacoes, setVariacoes] = useState(true);
   const [dados, setDados] = useState<Dados | null>(null);
@@ -112,17 +116,13 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/consulta?opcoes=1")
       .then((r) => r.json())
-      .then((o: Opcoes) => {
-        setOpcoes(o);
-        setCurso(o.cursos.includes("MMM") ? "MMM" : (o.cursos[0] ?? ""));
-        setComparacao(o.cursos.includes("CIS") ? "CIS" : (o.cursos[1] ?? ""));
-      })
-      .catch(() => setErro("Não foi possível carregar a lista de cursos."));
+      .then((o: Opcoes) => setOpcoes(o))
+      .catch(() => setErro("Não foi possível carregar as sugestões. Você ainda pode digitar os códigos."));
   }, []);
 
   const analisar = useCallback(async () => {
-    if (!curso || !comparacao) {
-      setErro("Selecione o curso base e o curso de comparação.");
+    if (!curso.trim() || !comparacao.trim()) {
+      setErro("Informe o curso base e o curso de comparação.");
       return;
     }
     setCarregando(true);
@@ -146,10 +146,11 @@ export default function Home() {
     }
   }, [curso, turma, comparacao, turmaComparacao, variacoes]);
 
+  // Primeira carga já traz o exemplo MMM x CIS.
   useEffect(() => {
-    if (curso && comparacao) void analisar();
+    void analisar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curso, comparacao]);
+  }, []);
 
   const alunosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -158,9 +159,8 @@ export default function Home() {
     );
   }, [dados, busca, faixaTabela]);
 
-  const tituloComparacao = dados?.faixas.find((f) => f.chave === "comparacao")?.titulo ?? comparacao;
   const resumo = dados
-    ? `A ${turma ? `turma ${turma}` : `base do curso ${curso}`} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao}${variacoes ? " (ou variações)" : ""} em algum momento; ${dados.faixas[1]?.pct}% fez outro curso (que não ${curso} nem ${comparacao}); e ${dados.faixas[2]?.pct}% estão fazendo pela primeira vez em qualquer curso.`
+    ? `A ${turma.trim() ? `turma ${turma.trim()}` : `base do curso ${curso.trim()}`} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao.trim()}${variacoes ? " (ou variações)" : ""} em algum momento; ${dados.faixas[1]?.pct}% fez outro curso (que não é o da base nem o comparado); e ${dados.faixas[2]?.pct}% estão fazendo pela primeira vez em qualquer curso.`
     : "";
 
   return (
@@ -178,10 +178,10 @@ export default function Home() {
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-          <Select label="Curso base" valor={curso} opcoes={opcoes.cursos} onChange={(v) => { setCurso(v); setTurma(""); }} Placeholder="Selecione" />
-          <Select label="Turma base" valor={turma} opcoes={opcoes.turmas} onChange={setTurma} Placeholder="Todas as turmas" />
-          <Select label="Comparar com" valor={comparacao} opcoes={opcoes.cursos} onChange={(v) => { setComparacao(v); setTurmaComparacao(""); }} Placeholder="Selecione" />
-          <Select label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmas} onChange={setTurmaComparacao} Placeholder="Qualquer turma" />
+          <Campo id="cursos-base" label="Curso base" valor={curso} opcoes={opcoes.cursos} onChange={setCurso} placeholder="Ex.: MMM" />
+          <Campo id="turmas-base" label="Turma base" valor={turma} opcoes={opcoes.turmas} onChange={setTurma} placeholder="Todas as turmas" />
+          <Campo id="cursos-comp" label="Comparar com" valor={comparacao} opcoes={opcoes.cursos} onChange={setComparacao} placeholder="Ex.: CIS" />
+          <Campo id="turmas-comp" label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmas} onChange={setTurmaComparacao} placeholder="Qualquer turma" />
           <div className="flex items-end">
             <button
               onClick={() => void analisar()}
@@ -193,10 +193,15 @@ export default function Home() {
             </button>
           </div>
         </div>
-        <label className="mt-3 flex items-center gap-2 text-xs" style={{ color: COR.textoSuave }}>
-          <input type="checkbox" checked={variacoes} onChange={(e) => setVariacoes(e.target.checked)} />
-          Incluir variações do curso comparado (ex.: CIS, CISFM, CISAS, CISA)
-        </label>
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-xs" style={{ color: COR.textoSuave }}>
+            <input type="checkbox" checked={variacoes} onChange={(e) => setVariacoes(e.target.checked)} />
+            Incluir variações do curso comparado (ex.: CIS, CISFM, CISAS, CISA)
+          </label>
+          <span className="text-[11px]" style={{ color: COR.textoSuave }}>
+            Digite livremente ou escolha nas sugestões. Para vários códigos, separe por vírgula — ex.: <b>MMM, CIS</b>.
+          </span>
+        </div>
       </section>
 
       {erro && (
@@ -237,7 +242,7 @@ export default function Home() {
                   <span className="text-sm" style={{ color: COR.texto }}>{numero(f.pessoas)} alunos</span>
                 </div>
                 <div className="mt-1 text-[11px]" style={{ color: COR.textoSuave }}>
-                  {numero(f.contas)} contas · {f.chave === "comparacao" ? "histórico no curso comparado" : f.chave === "primeira" ? "nenhum curso anterior" : "cursos diferentes dos dois selecionados"}
+                  {numero(f.contas)} contas · {f.chave === "comparacao" ? "histórico no curso comparado" : f.chave === "primeira" ? "nenhum curso anterior" : "cursos diferentes dos selecionados"}
                 </div>
                 {f.amostra.length > 0 && (
                   <div className="mt-2 line-clamp-2 text-[11px]" style={{ color: COR.textoSuave }}>
@@ -331,7 +336,7 @@ export default function Home() {
           </section>
 
           <p className="pb-2 text-center text-[11px]" style={{ color: COR.textoSuave }}>
-            {tituloComparacao} · base: {curso}{turma ? ` / ${turma}` : ""} · regras: mesmas do relatório manual (fases aprovadas e tipos de matrícula excluídos)
+            {dados.filtros.comparacao} · base: {dados.filtros.curso}{dados.filtros.turma ? ` / ${dados.filtros.turma}` : ""} · regras: mesmas do relatório manual (fases aprovadas e tipos de matrícula excluídos)
           </p>
         </>
       )}
