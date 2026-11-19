@@ -8,6 +8,7 @@ const COR = {
   fundo: "#EEF1F7",
   ok: "#1E9E5A",
   neutro: "#8A94A6",
+  atencao: "#B45309",
   texto: "#1F2937",
   textoSuave: "#5B6577",
 };
@@ -23,7 +24,7 @@ type Faixa = {
 type Dados = {
   modo: "padrao" | "mesmo-curso";
   filtros: { curso: string; turma: string; comparacao: string; turmaComparacao: string; variacoes: boolean };
-  total: { pessoas: number; contas: number; matriculas: number };
+  total: { pessoas: number; contas: number; repetidos: number };
   faixas: Faixa[];
 };
 
@@ -241,8 +242,8 @@ export default function Home() {
 
           <section className="grid gap-3 sm:grid-cols-3">
             <Cartao titulo="Alunos matriculados" valor={numero(dados.total.pessoas)} detalhe="soma de pessoas" cor={COR.primaria} />
-            <Cartao titulo="Alunos distintos" valor={numero(dados.total.contas)} detalhe="contas no Salesforce" cor={COR.destaque} />
-            <Cartao titulo="Matrículas" valor={numero(dados.total.matriculas)} detalhe="oportunidades" cor={COR.neutro} />
+            <Cartao titulo="Alunos distintos (ID)" valor={numero(dados.total.contas)} detalhe="IDs diferentes no Salesforce" cor={COR.destaque} />
+            <Cartao titulo="Alunos repetidos" valor={numero(dados.total.repetidos)} detalhe="diferença entre os dois totais" cor={COR.atencao} />
           </section>
 
           <section className="grid gap-3 md:grid-cols-3">

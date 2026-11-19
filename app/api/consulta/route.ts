@@ -244,7 +244,11 @@ async function analisar(params: {
       turmaComparacao: termosTurmaComp.join(", "),
       variacoes,
     },
-    total: { pessoas: totalPessoas, contas: totalContas, matriculas: linhas.length },
+    total: {
+      pessoas: totalPessoas,
+      contas: totalContas,
+      repetidos: Math.max(0, totalPessoas - totalContas),
+    },
     faixas,
   };
 }
