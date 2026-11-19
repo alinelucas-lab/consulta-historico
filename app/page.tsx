@@ -29,6 +29,7 @@ type Repetido = {
   curso: string;
   pacote: string;
   tipoMatricula: string;
+  tipoMatriculaLabel: string;
 };
 type Dados = {
   modo: "padrao" | "mesmo-curso";
@@ -338,7 +339,7 @@ export default function Home() {
                       .filter((r) => {
                         const termo = buscaRepetidos.trim().toLowerCase();
                         if (!termo) return true;
-                        return [r.vendaId, r.alunoId, r.aluno, r.nomeVenda, r.curso, r.pacote, r.tipoMatricula]
+                        return [r.vendaId, r.alunoId, r.aluno, r.nomeVenda, r.curso, r.pacote, r.tipoMatricula, r.tipoMatriculaLabel]
                           .some((v) => v.toLowerCase().includes(termo));
                       })
                       .map((r) => (
@@ -349,7 +350,9 @@ export default function Home() {
                           <td className="px-2 py-1.5">{r.nomeVenda}</td>
                           <td className="px-2 py-1.5 font-semibold">{r.curso}</td>
                           <td className="px-2 py-1.5">{r.pacote}</td>
-                          <td className="px-2 py-1.5">{r.tipoMatricula}</td>
+                          <td className="px-2 py-1.5">
+                            {r.tipoMatriculaLabel ? `${r.tipoMatriculaLabel} (${r.tipoMatricula})` : r.tipoMatricula}
+                          </td>
                         </tr>
                       ))}
                   </tbody>

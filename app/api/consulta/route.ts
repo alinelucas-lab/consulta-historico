@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sfQuery } from "@/lib/salesforce";
+import { sfPicklistLabel, sfQuery } from "@/lib/salesforce";
 
 // Mesmas regras que você usa hoje nas consultas manuais.
 const STAGES = [
@@ -167,7 +167,7 @@ async function analisar(params: {
   // "já fez este curso em outra turma?" x "é a primeira vez neste curso?".
   const mesmoCurso = cursosComp.some((c) => cursosBase.includes(c));
 
-  const [linhas, jaFez, primeira] = await Promise.all([
+  const [linhas, jaFez, primeira, tiposLabel] = await Promise.all([
     sfQuery<Linha>(
       `SELECT Id, AccountId, Account.Name, Name, C_digo_do_Curso__c,
               Pacote_Comp__c, Tipo_de_Matricula__c, QuantidadePessoas__c
@@ -187,6 +187,7 @@ async function analisar(params: {
                             WHERE ${REGRAS}
                               AND C_digo_do_Curso__c NOT IN (${lista(cursosBase)}))`
         ),
+    sfPicklistLabel("Opportunity", "Tipo_de_Matricula__c"),
   ]);
 
   const pessoasPorConta = new Map<string, number>();
@@ -218,6 +219,8 @@ async function analisar(params: {
     curso: l.C_digo_do_Curso__c ?? "—",
     pacote: l.Pacote_Comp__c ?? "—",
     tipoMatricula: l.Tipo_de_Matricula__c ?? "—",
+    tipoMatriculaLabel:
+      (l.Tipo_de_Matricula__c && tiposLabel.get(l.Tipo_de_Matricula__c)) || "",
   }));
   repetidos.sort(
     (a, b) => a.aluno.localeCompare(b.aluno, "pt-BR") || a.nomeVenda.localeCompare(b.nomeVenda, "pt-BR")
