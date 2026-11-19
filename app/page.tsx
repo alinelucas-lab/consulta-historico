@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const COR = {
   primaria: "#0B2A6F",
@@ -12,21 +12,18 @@ const COR = {
   textoSuave: "#5B6577",
 };
 
-type Opcoes = { cursos: string[]; turmas: string[] };
+type Opcoes = { cursos: string[]; turmasBase: string[]; turmasComparacao: string[] };
 type Faixa = {
   chave: string;
   titulo: string;
   pessoas: number;
   contas: number;
   pct: number;
-  amostra: string[];
 };
-type Aluno = { id: string; nome: string; pessoas: number; faixa: string };
 type Dados = {
   filtros: { curso: string; turma: string; comparacao: string; turmaComparacao: string; variacoes: boolean };
   total: { pessoas: number; contas: number; matriculas: number };
   faixas: Faixa[];
-  alunos: Aluno[];
 };
 
 const CORES_FAIXA: Record<string, string> = {
@@ -101,7 +98,7 @@ function Campo({
 }
 
 export default function Home() {
-  const [opcoes, setOpcoes] = useState<Opcoes>({ cursos: [], turmas: [] });
+  const [opcoes, setOpcoes] = useState<Opcoes>({ cursos: [], turmasBase: [], turmasComparacao: [] });
   const [curso, setCurso] = useState("MMM");
   const [turma, setTurma] = useState("");
   const [comparacao, setComparacao] = useState("CIS");
@@ -110,15 +107,23 @@ export default function Home() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
-  const [busca, setBusca] = useState("");
-  const [faixaTabela, setFaixaTabela] = useState("");
 
+  // Sugestões de turma acompanham o curso selecionado.
   useEffect(() => {
-    fetch("/api/consulta?opcoes=1")
-      .then((r) => r.json())
-      .then((o: Opcoes) => setOpcoes(o))
-      .catch(() => setErro("Não foi possível carregar as sugestões. Você ainda pode digitar os códigos."));
-  }, []);
+    const timer = setTimeout(() => {
+      const q = new URLSearchParams({
+        opcoes: "1",
+        curso,
+        comparacao,
+        variacoes: variacoes ? "1" : "0",
+      });
+      fetch(`/api/consulta?${q}`)
+        .then((r) => r.json())
+        .then((o: Opcoes) => setOpcoes(o))
+        .catch(() => setErro("Não foi possível carregar as sugestões. Você ainda pode digitar os códigos."));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [curso, comparacao, variacoes]);
 
   const analisar = useCallback(async () => {
     if (!curso.trim() || !comparacao.trim()) {
@@ -152,13 +157,6 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const alunosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return (dados?.alunos ?? []).filter(
-      (a) => (!faixaTabela || a.faixa === faixaTabela) && (!termo || a.nome.toLowerCase().includes(termo))
-    );
-  }, [dados, busca, faixaTabela]);
-
   const resumo = dados
     ? `A ${turma.trim() ? `turma ${turma.trim()}` : `base do curso ${curso.trim()}`} tem ${numero(dados.total.pessoas)} alunos matriculados; ${dados.faixas[0]?.pct}% já fez ${comparacao.trim()}${variacoes ? " (ou variações)" : ""} em algum momento; ${dados.faixas[1]?.pct}% fez outro curso (que não é o da base nem o comparado); e ${dados.faixas[2]?.pct}% estão fazendo pela primeira vez em qualquer curso.`
     : "";
@@ -179,9 +177,9 @@ export default function Home() {
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
           <Campo id="cursos-base" label="Curso base" valor={curso} opcoes={opcoes.cursos} onChange={setCurso} placeholder="Ex.: MMM" />
-          <Campo id="turmas-base" label="Turma base" valor={turma} opcoes={opcoes.turmas} onChange={setTurma} placeholder="Todas as turmas" />
+          <Campo id="turmas-base" label="Turma base" valor={turma} opcoes={opcoes.turmasBase} onChange={setTurma} placeholder="Ex.: 253 (contém)" />
           <Campo id="cursos-comp" label="Comparar com" valor={comparacao} opcoes={opcoes.cursos} onChange={setComparacao} placeholder="Ex.: CIS" />
-          <Campo id="turmas-comp" label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmas} onChange={setTurmaComparacao} placeholder="Qualquer turma" />
+          <Campo id="turmas-comp" label="Turma comparada" valor={turmaComparacao} opcoes={opcoes.turmasComparacao} onChange={setTurmaComparacao} placeholder="Ex.: 253 (contém)" />
           <div className="flex items-end">
             <button
               onClick={() => void analisar()}
@@ -199,7 +197,10 @@ export default function Home() {
             Incluir variações do curso comparado (ex.: CIS, CISFM, CISAS, CISA)
           </label>
           <span className="text-[11px]" style={{ color: COR.textoSuave }}>
-            Digite livremente ou escolha nas sugestões. Para vários códigos, separe por vírgula — ex.: <b>MMM, CIS</b>.
+            Cursos: digite ou escolha; separe vários por vírgula (ex.: <b>MMM, CIS</b>).
+          </span>
+          <span className="text-[11px]" style={{ color: COR.textoSuave }}>
+            Turmas: digite parte do nome (ex.: <b>253</b> = contém). Use <b>=</b> para exato, <b>^</b> para começa com, <b>$</b> para termina com. Várias, separe por vírgula.
           </span>
         </div>
       </section>
@@ -244,11 +245,6 @@ export default function Home() {
                 <div className="mt-1 text-[11px]" style={{ color: COR.textoSuave }}>
                   {numero(f.contas)} contas · {f.chave === "comparacao" ? "histórico no curso comparado" : f.chave === "primeira" ? "nenhum curso anterior" : "cursos diferentes dos selecionados"}
                 </div>
-                {f.amostra.length > 0 && (
-                  <div className="mt-2 line-clamp-2 text-[11px]" style={{ color: COR.textoSuave }}>
-                    Ex.: {f.amostra.slice(0, 3).join(", ")}
-                  </div>
-                )}
               </div>
             ))}
           </section>
@@ -274,65 +270,6 @@ export default function Home() {
                 </span>
               ))}
             </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wide" style={{ color: COR.primaria }}>
-                Alunos ({numero(alunosFiltrados.length)})
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                <select
-                  value={faixaTabela}
-                  onChange={(e) => setFaixaTabela(e.target.value)}
-                  className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs"
-                >
-                  <option value="">Todas as situações</option>
-                  {dados.faixas.map((f) => (
-                    <option key={f.chave} value={f.chave}>{f.titulo}</option>
-                  ))}
-                </select>
-                <input
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar aluno..."
-                  className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs"
-                />
-              </div>
-            </div>
-            <div className="mt-3 max-h-[420px] overflow-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase" style={{ color: COR.textoSuave }}>
-                  <tr>
-                    <th className="px-2 py-2">Aluno</th>
-                    <th className="px-2 py-2">Situação</th>
-                    <th className="px-2 py-2 text-right">Pessoas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {alunosFiltrados.slice(0, 500).map((a) => {
-                    const f = dados.faixas.find((x) => x.chave === a.faixa);
-                    return (
-                      <tr key={a.id} className="border-t border-slate-100">
-                        <td className="px-2 py-1.5">{a.nome}</td>
-                        <td className="px-2 py-1.5">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-block h-2 w-2 rounded-full" style={{ background: CORES_FAIXA[a.faixa] }} />
-                            {f?.titulo ?? a.faixa}
-                          </span>
-                        </td>
-                        <td className="px-2 py-1.5 text-right font-semibold">{numero(a.pessoas)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {alunosFiltrados.length > 500 && (
-              <p className="mt-2 text-[11px]" style={{ color: COR.textoSuave }}>
-                Mostrando os primeiros 500 alunos. Use a busca para filtrar.
-              </p>
-            )}
           </section>
 
           <p className="pb-2 text-center text-[11px]" style={{ color: COR.textoSuave }}>
